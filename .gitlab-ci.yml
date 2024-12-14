@@ -1,0 +1,59 @@
+stages:
+  - lint
+  - build
+  - test
+  - deploy
+
+variables:
+  REGISTRY: anestesia-tech.gitlab.yandexcloud.net:5050
+  TAG: $REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME:latest
+  REGISTRY_USER: anestesia
+  DOCKER_IMAGE: docker:24.0.5
+
+default:
+  before_script:
+    - echo $TOKEN | docker login $REGISTRY -u $REGISTRY_USER --password-stdin
+
+run linter for code:
+  stage: lint
+  image: $DOCKER_IMAGE
+  script:
+    - echo "Run code linter"
+    - pylint -d C0301 ./app/*
+  allow_failure: true
+  when: always
+
+build image:
+  stage: build
+  image: $DOCKER_IMAGE
+  script:
+    - echo "Building image..."
+    - docker build -t $TAG .
+    - docker push $TAG
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+run image test:
+  stage: test
+  before_script: []
+  needs:
+    - job: build image
+  image: $REGISTRY/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME:latest
+  script:
+    - echo "Running tests"
+    - bandit ./app/*
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+deploy:
+  stage: deploy
+  image: $DOCKER_IMAGE
+  needs:
+    - job: build image
+    - job: run image test
+  script:
+    - echo "Deploy"
+    - docker compose up --remove-orphans --detach
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    
